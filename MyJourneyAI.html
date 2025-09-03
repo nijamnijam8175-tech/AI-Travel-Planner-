@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Travel Planner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-fade-in {
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin {
+            animation: spin 1s linear infinite;
+        }
+        /* Mini-spinner for TTS button */
+        .mini-spinner {
+            width: 20px;
+            height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+        }
+    </style>
+</head>
+<body class="bg-gray-50">
+
+    <header class="bg-white/80 backdrop-blur-lg shadow-md sticky top-0 z-50">
+      <nav class="container mx-auto px-6 py-4 flex justify-between items-center">
+        <div class="text-2xl font-bold text-gray-800 cursor-pointer" data-action="navigate" data-page="home">
+          MyJourneyAI
+        </div>
+        <div class="flex items-center space-x-4">
+          <button data-action="navigate" data-page="home" class="flex items-center text-gray-600 hover:text-indigo-600 transition-colors duration-300">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2 h-6 w-6"><circle cx="12" cy="12" r="10"></circle><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"></polygon></svg>
+            Explore Guide
+          </button>
+          <button data-action="navigate" data-page="planner" class="flex items-center text-gray-600 hover:text-indigo-600 transition-colors duration-300">
+            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="mr-2 h-6 w-6"><path d="M8 2v4"></path><path d="M16 2v4"></path><rect width="18" height="18" x="3" y="4" rx="2"></rect><path d="M3 10h18"></path><path d="M8 14h.01"></path><path d="M12 14h.01"></path><path d="M16 14h.01"></path><path d="M8 18h.01"></path><path d="M12 18h.01"></path><path d="M16 18h.01"></path></svg>
+            AI Planner
+          </button>
+        </div>
+      </nav>
+    </header>
+
+    <main id="app-root">
+        <!-- App content is rendered here by JavaScript -->
+    </main>
+
+    <footer class="bg-gray-100 mt-12">
+        <div class="container mx-auto px-6 py-4 text-center text-gray-500">
+            <p>&copy; 2024 MyJourneyAI. Your journey, reimagined.</p>
+        </div>
+    </footer>
+
+    <script type="module">
+        // --- DOM Elements ---
+        const appRoot = document.getElementById('app-root');
+        let audioPlayer = null; // Single audio element to prevent overlap
+
+        // --- App State ---
+        let state = {
+            currentPage: 'home', // 'home', 'stateDetail', 'planner', 'itinerary'
+            selectedStateId: null,
+            itinerary: null,
+            loading: false,
+            error: null,
+            packingList: '',
+            culturalTips: '',
+            foodieGuide: '',
+            isSubfeatureLoading: false,
+            conciergeAnswer: '',
+            isConciergeLoading: false,
+            ttsLoadingDay: null, // Index of the day for which TTS is loading
+        };
+
+        // --- State Updater ---
+        function setState(newState) {
+            Object.assign(state, newState);
+            renderApp();
+        }
+
+        // --- SVG Icons (as HTML strings) ---
+        const ArrowLeftIcon = () => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 mr-2"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>`;
+        const SparklesIcon = () => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 mr-2"><path d="m12 3-1.9 3.9-3.9 1.9 3.9 1.9 1.9 3.9 1.9-3.9 3.9-1.9-3.9-1.9Z"/><path d="M19 12h-2"/><path d="M14 8h-2"/><path d="M19 18h-2"/><path d="M5 12H3"/><path d="M10 8H8"/><path d="M5 6H3"/></svg>`;
+        const MoneyIcon = () => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 mr-2 text-green-600"><circle cx="12" cy="12" r="8"></circle><line x1="3" y1="3" x2="6" y2="6"></line><line x1="21" y1="3" x2="18" y2="6"></line><line x1="3" y1="21" x2="6" y2="18"></line><line x1="21" y1="21" x2="18" y2="18"></line></svg>`;
+        const TransportIcon = () => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5 mr-2 text-blue-600"><path d="M10 17h.01"></path><path d="M14 17h.01"></path><path d="M4 17h-2v-11a1 1 0 0 1 1-1h1"></path><path d="m15 17h5v-4.5a1.5 1.5 0 0 0-1.5-1.5h-10.5a1.5 1.5 0 0 0-1.5 1.5v4.5h5"></path><path d="m15 12-2.5-2.5"></path><path d="m5 12 2.5-2.5"></path><path d="M8 9h8"></path></svg>`;
+        const JournalIcon = () => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24" a24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4 mr-2 text-gray-500"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path></svg>`;
+        const AlertTriangleIcon = () => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-6 w-6 mr-3 text-red-500"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>`;
+        const LoadingSpinner = () => `<div class="flex justify-center items-center p-8"><div class="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500"></div></div>`;
+        const VolumeIcon = () => `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path></svg>`;
+
+        // --- Travel Data ---
+        const travelData = [
+          {id: 'tamilnadu', name: 'Tamil Nadu', tagline: 'The Land of Temples', description: 'Home to ancient Dravidian culture, Tamil Nadu boasts towering temples, classical dance forms, delicious cuisine, and scenic hill stations.', imageUrl: 'https://images.unsplash.com/photo-1616843413587-9e3a35f7bb45?q=80&w=1974&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Meenakshi Amman Temple (Madurai)', 'Marina Beach (Chennai)', 'Ooty', 'Kanyakumari'], localCuisine: ['Chettinad Cuisine', 'Dosa', 'Idli', 'Pongal'], activities: ['Temple tours', 'Exploring hill stations', 'Enjoying the coastline', 'Attending cultural festivals'],},},
+          {id: 'kerala', name: 'Kerala', tagline: 'God\'s Own Country', description: 'Lush green landscapes, serene backwaters, and pristine beaches await you in Kerala. A paradise for nature lovers, it offers a tranquil escape.', imageUrl: 'https://images.unsplash.com/photo-1602216056096-3b40cc0c9944?q=80&w=2070&auto=format&fit=crop', details: {bestTimeToVisit: 'September to March', keyAttractions: ['Alleppey Backwaters', 'Munnar Tea Gardens', 'Varkala Beach', 'Periyar National Park'], localCuisine: ['Appam and Stew', 'Sadya', 'Kerala Prawn Curry'], activities: ['Houseboat cruise', 'Ayurvedic treatments', 'Spice plantation tours', 'Kathakali performance'],},},
+          {id: 'rajasthan', name: 'Rajasthan', tagline: 'The Land of Kings', description: 'Experience the grandeur of royal India in Rajasthan. From magnificent forts and opulent palaces to vibrant festivals and stunning desert landscapes.', imageUrl: 'https://images.unsplash.com/photo-1599661046827-8f553303a6c6?q=80&w=1974&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Hawa Mahal (Jaipur)', 'Mehrangarh Fort (Jodhpur)', 'City Palace (Udaipur)', 'Thar Desert (Jaisalmer)'], localCuisine: ['Dal Baati Churma', 'Gatte ki Sabzi', 'Laal Maas'], activities: ['Camel Safari', 'Hot Air Ballooning', 'Exploring ancient forts', 'Shopping for handicrafts'],},},
+          {id: 'goa', name: 'Goa', tagline: 'The Pearl of the Orient', description: 'Famous for its sun-kissed beaches, vibrant nightlife, and Portuguese heritage, Goa is India\'s ultimate party destination and a place to unwind.', imageUrl: 'https://images.unsplash.com/photo-1560179406-1f69ab02dc61?q=80&w=1974&auto=format&fit=crop', details: {bestTimeToVisit: 'November to February', keyAttractions: ['Baga Beach', 'Palolem Beach', 'Old Goa Churches', 'Dudhsagar Falls'], localCuisine: ['Goan Fish Curry', 'Vindaloo', 'Bebinca'], activities: ['Water sports', 'Beach hopping', 'Exploring colonial architecture', 'Flea market shopping'],},},
+          {id: 'himachal', name: 'Himachal Pradesh', tagline: 'The Himalayan Abode', description: 'Nestled in the mighty Himalayas, Himachal Pradesh is a destination for adventure seekers and peace lovers alike, offering snow-capped peaks and lush valleys.', imageUrl: 'https://images.unsplash.com/photo-1588282322673-c31945a131e2?q=80&w=2070&auto=format&fit=crop', details: {bestTimeToVisit: 'February to June (Summer), October to February (Winter/Snow)', keyAttractions: ['Shimla', 'Manali', 'Dharamshala (McLeod Ganj)', 'Spiti Valley'], localCuisine: ['Dham', 'Madra', 'Siddu'], activities: ['Trekking', 'Paragliding', 'Skiing', 'Visiting monasteries'],},},
+          {id: 'uttarpradesh', name: 'Uttar Pradesh', tagline: 'The Heartland of India', description: 'Home to the iconic Taj Mahal, ancient cities like Varanasi, and the confluence of sacred rivers, Uttar Pradesh is the cradle of Indian culture and history.', imageUrl: 'https://images.unsplash.com/photo-1524492412937-b28074a5d7da?q=80&w=2071&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Taj Mahal (Agra)', 'Ghats of Varanasi', 'Fatehpur Sikri', 'Sangam (Prayagraj)'], localCuisine: ['Awadhi Biryani', 'Kebabs', 'Petha'], activities: ['Sunrise at the Taj', 'Boat ride on the Ganges', 'Exploring Mughal architecture'],},},
+          {id: 'maharashtra', name: 'Maharashtra', tagline: 'The Gateway to India', description: 'From the bustling metropolis of Mumbai to the ancient caves of Ajanta and Ellora, Maharashtra offers a vibrant mix of modernity, history, and natural beauty.', imageUrl: 'https://images.unsplash.com/photo-1579033461380-adb47c3eb938?q=80&w=1974&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Gateway of India (Mumbai)', 'Ajanta & Ellora Caves', 'Lonavala', 'Shirdi'], localCuisine: ['Vada Pav', 'Misal Pav', 'Puran Poli'], activities: ['Bollywood tours', 'Trekking in the Western Ghats', 'Wine tasting in Nashik'],},},
+          {id: 'westbengal', name: 'West Bengal', tagline: 'The Land of the Royal Bengal Tiger', description: 'A land of rich culture, literature, and art. Home to Kolkata, the Sundarbans mangrove forest, and the tea gardens of Darjeeling.', imageUrl: 'https://images.unsplash.com/photo-1592234358334-0a6f81df158a?q=80&w=1968&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Victoria Memorial (Kolkata)', 'Sundarbans National Park', 'Darjeeling Himalayan Railway', 'Howrah Bridge'], localCuisine: ['Macher Jhol', 'Rosogolla', 'Mishti Doi'], activities: ['Tram ride in Kolkata', 'Tiger spotting in Sundarbans', 'Toy train ride in Darjeeling'],},},
+          {id: 'karnataka', name: 'Karnataka', tagline: 'One State, Many Worlds', description: 'Discover ancient ruins in Hampi, lush coffee plantations in Coorg, and the bustling tech hub of Bengaluru. A state with diverse experiences.', imageUrl: 'https://images.unsplash.com/photo-1598135753163-6167c1a1ad25?q=80&w=1975&auto=format&fit=crop', details: {bestTimeToVisit: 'October to April', keyAttractions: ['Hampi Ruins', 'Mysore Palace', 'Coorg Hill Station', 'Gokarna Beaches'], localCuisine: ['Bisi Bele Bath', 'Mysore Pak', 'Neer Dosa'], activities: ['Explore ancient temples', 'Coffee plantation tours', 'Trekking', 'Scuba diving'],},},
+          {id: 'gujarat', name: 'Gujarat', tagline: 'Vibrant Gujarat', description: 'Home to the Gir National Park, the Rann of Kutch, and the Sabarmati Ashram, Gujarat is a land of rich history, unique wildlife, and colorful festivals.', imageUrl: 'https://images.unsplash.com/photo-1621364262198-3a4794907106?q=80&w=2074&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Rann of Kutch', 'Gir National Park', 'Sabarmati Ashram', 'Somnath Temple'], localCuisine: ['Dhokla', 'Thepla', 'Fafda-Jalebi'], activities: ['Attend Rann Utsav', 'Lion safari in Gir', 'Explore stepwells', 'Visit ancient temples'],},},
+          {id: 'uttarakhand', name: 'Uttarakhand', tagline: 'The Land of the Gods', description: 'A spiritual haven with the holy cities of Haridwar and Rishikesh, stunning Himalayan peaks, and serene national parks like Jim Corbett.', imageUrl: 'https://images.unsplash.com/photo-1585994248805-3e9a59714574?q=80&w=2070&auto=format&fit=crop', details: {bestTimeToVisit: 'March to April and September to October', keyAttractions: ['Rishikesh', 'Nainital', 'Jim Corbett National Park', 'Auli'], localCuisine: ['Kafuli', 'Bhang Ki Chutney', 'Aloo ke Gutke'], activities: ['Yoga and meditation', 'White-water rafting', 'Wildlife safari', 'Skiing'],},},
+          {id: 'jammuandkashmir', name: 'Jammu & Kashmir', tagline: 'Paradise on Earth', description: 'Experience the breathtaking beauty of Srinagar\'s Dal Lake, the lush meadows of Gulmarg, and the serene valleys of Pahalgam.', imageUrl: 'https://images.unsplash.com/photo-1595825353139-38622c219855?q=80&w=2070&auto=format&fit=crop', details: {bestTimeToVisit: 'April to October', keyAttractions: ['Dal Lake (Srinagar)', 'Gulmarg', 'Pahalgam', 'Vaishno Devi Temple'], localCuisine: ['Rogan Josh', 'Wazwan', 'Kahwa'], activities: ['Shikara ride', 'Gondola ride in Gulmarg', 'Trekking', 'Pilgrimage'],},},
+          {id: 'ladakh', name: 'Ladakh', tagline: 'The Land of High Passes', description: 'A rugged and mesmerizing cold desert, famous for its dramatic landscapes, Buddhist monasteries, and thrilling adventure opportunities.', imageUrl: 'https://images.unsplash.com/photo-1580822185568-2c710f43393a?q=80&w=2070&auto=format&fit=crop', details: {bestTimeToVisit: 'June to September', keyAttractions: ['Pangong Tso Lake', 'Nubra Valley', 'Leh Palace', 'Thiksey Monastery'], localCuisine: ['Thukpa', 'Momos', 'Skyu'], activities: ['Mountain biking', 'Monastery hopping', 'Stargazing', 'Camel safari on double-humped camels'],},},
+          {id: 'delhi', name: 'Delhi', tagline: 'The Heart of India', description: 'A city of contrasts, where ancient history and modernity coexist. Explore Mughal-era monuments, bustling bazaars, and world-class museums.', imageUrl: 'https://images.unsplash.com/photo-1587474260584-136574528ed5?q=80&w=1974&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['India Gate', 'Qutub Minar', 'Humayun\'s Tomb', 'Chandni Chowk'], localCuisine: ['Chole Bhature', 'Butter Chicken', 'Street Chaat'], activities: ['Heritage walks', 'Shopping in local markets', 'Food tours', 'Visiting museums'],},},
+          {id: 'punjab', name: 'Punjab', tagline: 'The Land of Five Rivers', description: 'Known for its vibrant culture, hearty cuisine, and the stunning Golden Temple in Amritsar, Punjab offers a warm and lively experience.', imageUrl: 'https://images.unsplash.com/photo-1615833827638-34907a323a2f?q=80&w=2070&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Golden Temple (Amritsar)', 'Wagah Border', 'Jallianwala Bagh', 'Rock Garden (Chandigarh)'], localCuisine: ['Sarson da Saag & Makki di Roti', 'Amritsari Kulcha', 'Lassi'], activities: ['Visit Golden Temple', 'Witness Wagah Border ceremony', 'Explore rural life'],},},
+          {id: 'madhyapradesh', name: 'Madhya Pradesh', tagline: 'The Heart of Incredible India', description: 'Discover ancient temples of Khajuraho, wildlife in Bandhavgarh and Kanha, and the historic city of Gwalior in the heart of India.', imageUrl: 'https://images.unsplash.com/photo-1605416325039-442294151a66?q=80&w=1935&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Khajuraho Temples', 'Bandhavgarh National Park', 'Gwalior Fort', 'Sanchi Stupa'], localCuisine: ['Poha-Jalebi', 'Bhutte ka Kees', 'Dal Bafla'], activities: ['Tiger safari', 'Explore temple architecture', 'Boating at Bhedaghat'],},},
+          {id: 'andhrapradesh', name: 'Andhra Pradesh', tagline: 'The Kohinoor of India', description: 'Rich in natural resources, ancient temples like Tirupati, and a long coastline with beautiful beaches like Vizag.', imageUrl: 'https://images.unsplash.com/photo-1629193792275-c72554dab38e?q=80&w=2070&auto=format&fit=crop', details: {bestTimeToVisit: 'October to March', keyAttractions: ['Tirumala Temple (Tirupati)', 'Araku Valley', 'Borra Caves', 'RK Beach (Visakhapatnam)'], localCuisine: ['Hyderabadi Biryani (shared heritage)', 'Pulihora', 'Gongura Pachadi'], activities: ['Pilgrimage', 'Explore hill stations', 'Visit natural caves', 'Relax on beaches'],},},
+          {id: 'assam', name: 'Assam', tagline: 'The Land of Red Rivers and Blue Hills', description: 'Famous for its lush tea gardens, the mighty Brahmaputra river, and as the home of the one-horned rhinoceros in Kaziranga National Park.', imageUrl: 'https://images.unsplash.com/photo-1609142621730-db3293839541?q=80&w=2070&auto=format&fit=crop', details: {bestTimeToVisit: 'October to April', keyAttractions: ['Kaziranga National Park', 'Kamakhya Temple', 'Majuli Island', 'Tea Gardens'], localCuisine: ['Assamese Thali', 'Khaar', 'Pitha'], activities: ['Wildlife safari', 'River cruise on Brahmaputra', 'Explore the world\'s largest river island'],},},
+          {id: 'sikkim', name: 'Sikkim', tagline: 'Small but Beautiful', description: 'A gem in the Himalayas, known for its pristine landscapes, vibrant Buddhist monasteries, and stunning views of Mount Kanchenjunga.', imageUrl: 'https://images.unsplash.com/photo-1599307991823-747d34190a61?q=80&w=1974&auto=format&fit=crop', details: {bestTimeToVisit: 'March to May and October to mid-December', keyAttractions: ['Tsomgo Lake', 'Rumtek Monastery', 'Gangtok', 'Nathula Pass'], localCuisine: ['Momos', 'Thukpa', 'Phagshapa'], activities: ['Trekking', 'Visit high-altitude lakes', 'Explore monasteries', 'Cable car ride in Gangtok'],},},
+        ];
+
+        // --- Audio Utility Functions ---
+        function base64ToArrayBuffer(base64) {
+            const binaryString = window.atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function pcmToWav(pcmData, sampleRate) {
+            const numChannels = 1;
+            const bytesPerSample = 2; // 16-bit PCM
+            const blockAlign = numChannels * bytesPerSample;
+            const byteRate = sampleRate * blockAlign;
+            const dataSize = pcmData.length * bytesPerSample;
+            const buffer = new ArrayBuffer(44 + dataSize);
+            const view = new DataView(buffer);
+
+            /* RIFF identifier */
+            view.setUint32(0, 1380533830, false); // "RIFF"
+            /* file length */
+            view.setUint32(4, 36 + dataSize, true);
+            /* RIFF type */
+            view.setUint32(8, 1463899717, false); // "WAVE"
+            /* format chunk identifier */
+            view.setUint32(12, 1718449184, false); // "fmt "
+            /* format chunk length */
+            view.setUint32(16, 16, true);
+            /* sample format (raw) */
+            view.setUint16(20, 1, true);
+            /* channel count */
+            view.setUint16(22, numChannels, true);
+            /* sample rate */
+            view.setUint32(24, sampleRate, true);
+            /* byte rate (sample rate * block align) */
+            view.setUint32(28, byteRate, true);
+            /* block align (channel count * bytes per sample) */
+            view.setUint16(32, blockAlign, true);
+            /* bits per sample */
+            view.setUint16(34, 16, true);
+            /* data chunk identifier */
+            view.setUint32(36, 1684108385, false); // "data"
+            /* data chunk length */
+            view.setUint32(40, dataSize, true);
+
+            for (let i = 0; i < pcmData.length; i++) {
+                view.setInt16(44 + i * 2, pcmData[i], true);
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+
+        // --- API Caller ---
+        const callGeminiApi = async (payload, model = 'gemini-2.5-flash-preview-05-20', retries = 3, delay = 1000) => {
+            const apiKey = ""; // Intentionally blank
+            const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(apiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        console.error("API Error:", errorData);
+                        throw new Error(`API error: ${errorData.error?.message || response.statusText}`);
+                    }
+                    const result = await response.json();
+                     if (!result.candidates?.[0]?.content?.parts?.[0]) {
+                        throw new Error("Invalid API response structure.");
+                    }
+                    return result.candidates[0].content.parts[0];
+                } catch (error) {
+                    console.warn(`Attempt ${i + 1} for ${model} failed. Retrying in ${delay / 1000}s...`, error.message);
+                    if (i === retries - 1) {
+                        console.error("API call failed after all retries.", error);
+                        throw error;
+                    }
+                    await new Promise(res => setTimeout(res, delay));
+                    delay *= 2;
+                }
+            }
+        };
+
+        // --- API Handlers ---
+        async function handleGenerateItinerary(preferences) {
+            setState({ loading: true, error: null, itinerary: null, packingList: '', culturalTips: '', foodieGuide: '' });
+            
+            const contextData = travelData.map(s => ({name: s.name, description: s.description, attractions: s.details.keyAttractions}));
+            const prompt = `You are an expert travel planner for India named MyJourneyAI. Create a personalized, day-by-day travel itinerary based on the user's preferences. Use the provided context about Indian states to inform your suggestions. If you suggest a place from the context, mention the state name. CONTEXT: ${JSON.stringify(contextData)}. The user's preferences are: Duration: ${preferences.duration} days, Budget: ${preferences.budget}, Interests: ${preferences.interests}, Travelers: ${preferences.travelers}, Pace: ${preferences.pace}, Preferred Travel: ${preferences.travelOptions}.`;
+            
+            const payload = {
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: {
+                    responseMimeType: "application/json",
+                    responseSchema: { type: "OBJECT", properties: { title: { type: "STRING" }, summary: { type: "STRING" }, hero_image_query: { type: "STRING" }, overall_estimated_cost: { type: "STRING" }, daily_plan: { type: "ARRAY", items: { type: "OBJECT", properties: { day: { type: "NUMBER" }, title: { type: "STRING" }, description: { type: "STRING" }, activities: { type: "ARRAY", items: { type: "STRING" } }, estimated_cost: { type: "STRING" }, travel_details: { type: "STRING" }, journal_prompt: { type: "STRING" } }, required: ["day", "title", "description", "activities", "estimated_cost", "travel_details", "journal_prompt"] } } }, required: ["title", "summary", "hero_image_query", "overall_estimated_cost", "daily_plan"] }
+                }
+            };
+
+            try {
+                const part = await callGeminiApi(payload);
+                const parsedItinerary = JSON.parse(part.text);
+                setState({ itinerary: parsedItinerary, currentPage: 'itinerary', loading: false });
+            } catch (err) {
+                console.error("Error generating itinerary:", err);
+                setState({ error: "Sorry, I couldn't generate an itinerary. The AI might be busy. Please check the console and try again.", loading: false });
+            }
+        }
+
+        async function generateSubfeatureContent(prompt, stateKey, loadingKey) {
+            setState({ [loadingKey]: true, error: null });
+            try {
+                const payload = { contents: [{ parts: [{ text: prompt }] }] };
+                const part = await callGeminiApi(payload);
+                setState({ [stateKey]: part.text, [loadingKey]: false });
+            } catch (err) {
+                console.error("Error generating content:", err);
+                setState({ error: "Sorry, I couldn't generate the details. Please try again later.", [loadingKey]: false });
+            }
+        }
+
+        function handleGeneratePackingList() {
+            const prompt = `You are a travel planning assistant. Based on the following travel itinerary for a trip in India, generate a comprehensive packing list. Format the output as plain text with clear headings for categories (e.g., ### Clothing, ### Essentials, ### Electronics). Do not use markdown other than the ### for headings.\n\nITINERARY:\n${JSON.stringify(state.itinerary)}`;
+            generateSubfeatureContent(prompt, 'packingList', 'isSubfeatureLoading');
+        }
+
+        function handleGenerateCulturalTips() {
+            const prompt = `You are a travel planning assistant specializing in Indian culture. Based on the following itinerary, provide essential cultural tips, useful local phrases, and safety advice. Format as plain text with clear headings (e.g., ### Cultural Etiquette, ### Useful Phrases, ### Safety Tips). Do not use markdown other than ### for headings.\n\nITINERARY:\n${JSON.stringify(state.itinerary)}`;
+            generateSubfeatureContent(prompt, 'culturalTips', 'isSubfeatureLoading');
+        }
+
+        function handleGenerateFoodieGuide() {
+            const prompt = `You are a food blogger specializing in authentic Indian cuisine. Based on the following itinerary, create a 'Foodie Guide'. For each major location, recommend 3-4 must-try local dishes with brief, enticing descriptions. Format as plain text with clear headings for each location. Do not use markdown other than ### for headings.\n\nITINERARY:\n${JSON.stringify(state.itinerary)}`;
+            generateSubfeatureContent(prompt, 'foodieGuide', 'isSubfeatureLoading');
+        }
+        
+        function handleAskConcierge(question, stateName) {
+            const prompt = `You are a helpful and friendly travel concierge for India. A traveler is asking a question about ${stateName}. Please provide a concise and helpful answer, formatted as plain text. Question: "${question}"`;
+            generateSubfeatureContent(prompt, 'conciergeAnswer', 'isConciergeLoading');
+        }
+        
+        async function handleListenToDay(dayIndex) {
+            setState({ ttsLoadingDay: dayIndex });
+            
+            const dayPlan = state.itinerary.daily_plan[dayIndex];
+            if (!dayPlan) {
+                setState({ ttsLoadingDay: null });
+                return;
+            }
+
+            const textToSpeak = `Day ${dayPlan.day}: ${dayPlan.title}. ${dayPlan.description}. The activities for the day are: ${dayPlan.activities.join('. ')}.`;
+            const payload = {
+                contents: [{ parts: [{ text: textToSpeak }] }],
+                generationConfig: { responseModalities: ["AUDIO"] },
+                model: "gemini-2.5-flash-preview-tts"
+            };
+
+            try {
+                const part = await callGeminiApi(payload, 'gemini-2.5-flash-preview-tts');
+                const audioData = part?.inlineData?.data;
+                const mimeType = part?.inlineData?.mimeType;
+
+                if (audioData && mimeType && mimeType.startsWith("audio/")) {
+                    const sampleRate = parseInt(mimeType.match(/rate=(\d+)/)[1], 10);
+                    const pcmData = base64ToArrayBuffer(audioData);
+                    const pcm16 = new Int16Array(pcmData);
+                    const wavBlob = pcmToWav(pcm16, sampleRate);
+                    const audioUrl = URL.createObjectURL(wavBlob);
+                    
+                    if (audioPlayer) {
+                        audioPlayer.pause();
+                    }
+                    audioPlayer = new Audio(audioUrl);
+                    audioPlayer.play();
+                } else {
+                    throw new Error("Invalid audio data received from API.");
+                }
+            } catch (err) {
+                 console.error("Error generating TTS audio:", err);
+                 setState({ error: "Sorry, couldn't generate audio for this day." });
+            } finally {
+                setState({ ttsLoadingDay: null });
+            }
+        }
+
+
+        // --- Render Functions ---
+        function renderHomePage() {
+            const stateCardsHtml = travelData.map(st => `
+                <div class="bg-white rounded-lg shadow-lg overflow-hidden transform hover:-translate-y-2 transition-transform duration-300 cursor-pointer group" data-action="select-state" data-id="${st.id}">
+                    <div class="relative">
+                        <img class="w-full h-56 object-cover group-hover:scale-110 transition-transform duration-300" src="${st.imageUrl}" alt="${st.name}">
+                        <div class="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent"></div>
+                        <div class="absolute bottom-0 left-0 p-4">
+                            <h3 class="text-2xl font-bold text-white">${st.name}</h3>
+                            <p class="text-sm text-indigo-200">${st.tagline}</p>
+                        </div>
+                    </div>
+                    <div class="p-4">
+                        <p class="text-gray-600 text-sm">${st.description}</p>
+                    </div>
+                </div>
+            `).join('');
+
+            return `
+                <div class="relative h-[50vh] bg-cover bg-center" style="background-image: url('https://images.unsplash.com/photo-1524492412937-b28074a5d7da?q=80&w=2071&auto=format&fit=crop')">
+                    <div class="absolute inset-0 bg-black/50 flex items-center justify-center">
+                        <div class="text-center text-white p-4 animate-fade-in">
+                            <h1 class="text-5xl md:text-6xl font-extrabold tracking-tight">Your Journey, Reimagined</h1>
+                            <p class="mt-4 text-lg md:text-xl max-w-2xl">Discover the wonders of India with personalized itineraries crafted by AI. Start exploring below.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="container mx-auto px-6 py-12">
+                    <h2 class="text-3xl font-extrabold text-center text-gray-800 mb-10">Explore the States</h2>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8">
+                        ${stateCardsHtml}
+                    </div>
+                </div>`;
+        }
+        
+        function renderStateDetailPage() {
+            const selectedState = travelData.find(s => s.id === state.selectedStateId);
+            if (!selectedState) return `<p class="text-center p-8">State not found.</p>`;
+            return `
+                <div class="container mx-auto px-6 py-8 animate-fade-in">
+                    <button data-action="navigate" data-page="home" class="inline-flex items-center mb-6 bg-white px-4 py-2 rounded-lg shadow hover:bg-gray-100 transition-colors">
+                        ${ArrowLeftIcon()} Back to Explore
+                    </button>
+                    <div class="bg-white rounded-lg shadow-xl overflow-hidden">
+                        <img class="w-full h-96 object-cover" src="${selectedState.imageUrl}" alt="${selectedState.name}">
+                        <div class="p-8">
+                            <h1 class="text-5xl font-bold text-gray-900 mb-2">${selectedState.name}</h1>
+                            <p class="text-xl text-indigo-500 font-medium mb-6">${selectedState.tagline}</p>
+                            <p class="text-gray-700 leading-relaxed mb-8">${selectedState.description}</p>
+                            <div class="grid md:grid-cols-2 gap-8">
+                                <div class="bg-gray-50 p-6 rounded-lg">
+                                    <h3 class="text-2xl font-semibold text-gray-800 mb-4">Key Information</h3>
+                                    <p class="mb-2"><strong class="text-gray-600">Best time to visit:</strong> ${selectedState.details.bestTimeToVisit}</p>
+                                    <p><strong class="text-gray-600">Must-try Cuisine:</strong> ${selectedState.details.localCuisine.join(', ')}</p>
+                                </div>
+                                <div class="bg-gray-50 p-6 rounded-lg">
+                                    <h3 class="text-2xl font-semibold text-gray-800 mb-4">Top Attractions</h3>
+                                    <ul class="list-disc list-inside text-gray-700 space-y-1">${selectedState.details.keyAttractions.map(item => `<li>${item}</li>`).join('')}</ul>
+                                </div>
+                                <div class="bg-gray-50 p-6 rounded-lg col-span-1 md:col-span-2">
+                                    <h3 class="text-2xl font-semibold text-gray-800 mb-4">Things to Do</h3>
+                                    <div class="flex flex-wrap gap-3">${selectedState.details.activities.map(item => `<span class="bg-indigo-100 text-indigo-800 text-sm font-medium px-3 py-1 rounded-full">${item}</span>`).join('')}</div>
+                                </div>
+                            </div>
+                            
+                            <!-- AI Concierge Section -->
+                            <div class="mt-12 border-t pt-8">
+                                <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">✨ AI Concierge</h2>
+                                <div class="max-w-xl mx-auto">
+                                     <div class="bg-gray-50 p-6 rounded-lg space-y-4">
+                                        <label for="concierge-question" class="block text-sm font-medium text-gray-700">Have a question about ${selectedState.name}?</label>
+                                        <textarea id="concierge-question" rows="3" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g., What are the best spots for photography?"></textarea>
+                                        <button data-action="ask-concierge" data-state-name="${selectedState.name}" class="w-full bg-indigo-600 text-white font-bold py-2 px-4 rounded-md hover:bg-indigo-700 flex items-center justify-center" ${state.isConciergeLoading ? 'disabled' : ''}>
+                                            ${state.isConciergeLoading ? '<div class="mini-spinner"></div>' : 'Ask AI'}
+                                        </button>
+                                     </div>
+                                     ${state.conciergeAnswer ? `
+                                        <div class="mt-6 bg-white p-6 rounded-lg shadow animate-fade-in">
+                                             <h4 class="font-semibold text-lg text-gray-800 mb-2">AI Concierge says:</h4>
+                                             <p class="text-gray-700 whitespace-pre-wrap">${state.conciergeAnswer}</p>
+                                        </div>
+                                     ` : ''}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        function renderPlannerPage() {
+             return `
+                <div class="container mx-auto px-6 py-8 max-w-2xl">
+                    <h1 class="text-4xl font-extrabold text-center text-gray-800 mb-2">AI Itinerary Planner</h1>
+                    <p class="text-center text-gray-500 mb-10">Tell us your travel style, and our AI will craft the perfect journey for you.</p>
+                    <form id="planner-form" class="bg-white p-8 rounded-xl shadow-lg space-y-6">
+                        <div><label for="duration" class="block text-sm font-medium text-gray-700 mb-1">Trip Duration (days)</label><input type="number" name="duration" id="duration" value="7" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" min="1" max="30"></div>
+                        <div><label for="budget" class="block text-sm font-medium text-gray-700 mb-1">Budget (per person)</label><select name="budget" id="budget" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"><option>Backpacker (~₹1500/day)</option><option selected>Moderate (~₹4000/day)</option><option>Luxury (~₹10000+/day)</option></select></div>
+                        <div><label for="interests" class="block text-sm font-medium text-gray-700 mb-1">Primary Interests (comma separated)</label><input type="text" name="interests" id="interests" value="History, Nature" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500" placeholder="e.g., Adventure, Spirituality, Food"></div>
+                        <div><label for="travelers" class="block text-sm font-medium text-gray-700 mb-1">Type of Travelers</label><select name="travelers" id="travelers" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"><option>Solo</option><option selected>Couple</option><option>Family with Kids</option><option>Group of Friends</option></select></div>
+                        <div><label for="pace" class="block text-sm font-medium text-gray-700 mb-1">Travel Pace</label><select name="pace" id="pace" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"><option selected>Relaxed</option><option>Moderate</option><option>Fast-paced</option></select></div>
+                        <div><label for="travelOptions" class="block text-sm font-medium text-gray-700 mb-1">Preferred Travel Options</label><select name="travelOptions" id="travelOptions" class="w-full border-gray-300 rounded-md shadow-sm focus:ring-indigo-500 focus:border-indigo-500"><option selected>Mix of Flights & Trains</option><option>Mainly Trains</option><option>Private Car</option><option>Most Economical</option></select></div>
+                        <button type="submit" class="w-full bg-indigo-600 text-white font-bold py-3 px-4 rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 transition-transform duration-200 transform hover:scale-105 flex items-center justify-center">✨ Generate My Itinerary</button>
+                    </form>
+                </div>`;
+        }
+
+        function renderItineraryPage() {
+            if (!state.itinerary) return `<p class="text-center p-8">No itinerary generated yet.</p>`;
+            const findStateLink = (text) => {
+                const lowerText = text.toLowerCase();
+                const foundState = travelData.find(st => lowerText.includes(st.name.toLowerCase()));
+                return foundState ? foundState.id : null;
+            };
+
+            const dailyPlanHtml = state.itinerary.daily_plan.map((day, index) => `
+                <div key="${day.day}" class="border-l-4 border-indigo-500 pl-6 py-4 bg-gray-50 rounded-r-lg">
+                    <div class="flex justify-between items-center">
+                        <h3 class="text-2xl font-bold text-gray-800">Day ${day.day}: ${day.title}</h3>
+                        <button data-action="listen-to-day" data-day-index="${index}" class="bg-indigo-500 text-white rounded-full p-2 hover:bg-indigo-600 transition-colors flex items-center justify-center" ${state.ttsLoadingDay === index ? 'disabled' : ''}>
+                            ${state.ttsLoadingDay === index ? '<div class="mini-spinner"></div>' : VolumeIcon()}
+                        </button>
+                    </div>
+                    <p class="text-gray-500 mb-4">${day.description}</p>
+                    <div class="grid sm:grid-cols-2 gap-4 mb-4 text-sm">
+                        <div class="flex items-center bg-white p-3 rounded-lg shadow-sm">${MoneyIcon()}<div><p class="font-bold text-gray-700">Est. Cost</p><p class="text-gray-600">${day.estimated_cost}</p></div></div>
+                        <div class="flex items-center bg-white p-3 rounded-lg shadow-sm">${TransportIcon()}<div><p class="font-bold text-gray-700">Travel</p><p class="text-gray-600">${day.travel_details}</p></div></div>
+                    </div>
+                    <ul class="space-y-2">
+                        ${day.activities.map(activity => {
+                            const stateId = findStateLink(activity);
+                            if (stateId) {
+                                const stateObj = travelData.find(s => s.id === stateId);
+                                const parts = activity.split(new RegExp(stateObj.name, "i"));
+                                return `<li class="flex items-start"><span class="text-indigo-500 font-bold mr-2 mt-1">&#10003;</span><span class="text-gray-700">${parts[0]}<a class="text-indigo-600 font-semibold hover:underline cursor-pointer" data-action="select-state" data-id="${stateId}">${stateObj.name}</a>${parts[1] || ''}</span></li>`;
+                            }
+                            return `<li class="flex items-start"><span class="text-indigo-500 font-bold mr-2 mt-1">&#10003;</span><span class="text-gray-700">${activity}</span></li>`;
+                        }).join('')}
+                    </ul>
+                    ${day.journal_prompt ? `<div class="mt-4 bg-white p-3 rounded-lg shadow-sm border-l-4 border-gray-300"><div class="flex items-center">${JournalIcon()}<p class="text-sm text-gray-700"><strong class="font-semibold">Journal Prompt:</strong> ${day.journal_prompt}</p></div></div>` : ''}
+                </div>
+            `).join('');
+
+            return `
+                <div class="container mx-auto px-6 py-8 max-w-4xl animate-fade-in">
+                    <button data-action="navigate" data-page="planner" class="inline-flex items-center mb-6 bg-white px-4 py-2 rounded-lg shadow hover:bg-gray-100 transition-colors">
+                        ${ArrowLeftIcon()} Back to Planner
+                    </button>
+                    <div class="bg-white rounded-xl shadow-2xl overflow-hidden">
+                        <img src="https://source.unsplash.com/1200x600/?${encodeURIComponent(state.itinerary.hero_image_query)}&sig=${Math.random()}" alt="${state.itinerary.title}" class="w-full h-80 object-cover" onerror="this.onerror=null;this.src='https://placehold.co/1200x600/e2e8f0/64748b?text=Image+Not+Found';">
+                        <div class="p-8">
+                            <h1 class="text-4xl font-extrabold text-gray-800 mb-2 text-center">${state.itinerary.title}</h1>
+                            <p class="text-gray-600 mb-4 text-center">${state.itinerary.summary}</p>
+                            <div class="text-center mb-8 bg-green-50 border border-green-200 rounded-lg p-3 max-w-md mx-auto"><p class="text-lg font-semibold text-green-800">Overall Estimated Cost: ${state.itinerary.overall_estimated_cost}</p></div>
+                            <div class="space-y-8">${dailyPlanHtml}</div>
+                            
+                            <div class="mt-12 border-t pt-8">
+                                <h2 class="text-3xl font-bold text-center text-gray-800 mb-6">AI Travel Assistants</h2>
+                                <div class="flex flex-col sm:flex-row gap-4 justify-center">
+                                    ${!state.packingList ? `<button data-action="generate-packing-list" ${state.isSubfeatureLoading ? 'disabled' : ''} class="flex-1 inline-flex items-center justify-center bg-teal-500 text-white font-bold py-3 px-4 rounded-md hover:bg-teal-600 disabled:bg-gray-400 transition-colors">${SparklesIcon()} Generate Packing List</button>` : ''}
+                                    ${!state.culturalTips ? `<button data-action="generate-cultural-tips" ${state.isSubfeatureLoading ? 'disabled' : ''} class="flex-1 inline-flex items-center justify-center bg-sky-500 text-white font-bold py-3 px-4 rounded-md hover:bg-sky-600 disabled:bg-gray-400 transition-colors">${SparklesIcon()} Generate Cultural Tips</button>` : ''}
+                                    ${!state.foodieGuide ? `<button data-action="generate-foodie-guide" ${state.isSubfeatureLoading ? 'disabled' : ''} class="flex-1 inline-flex items-center justify-center bg-amber-500 text-white font-bold py-3 px-4 rounded-md hover:bg-amber-600 disabled:bg-gray-400 transition-colors">${SparklesIcon()} Generate Foodie Guide</button>` : ''}
+                                </div>
+                                ${state.isSubfeatureLoading ? `<div class="mt-6">${LoadingSpinner()}</div>` : ''}
+                                ${state.packingList ? `<div class="mt-8 bg-gray-50 p-6 rounded-lg animate-fade-in"><h3 class="text-2xl font-semibold text-gray-800 mb-4">Your Personalized Packing List</h3><p class="text-gray-700 whitespace-pre-wrap">${state.packingList}</p></div>` : ''}
+                                ${state.culturalTips ? `<div class="mt-8 bg-gray-50 p-6 rounded-lg animate-fade-in"><h3 class="text-2xl font-semibold text-gray-800 mb-4">Your Cultural & Safety Guide</h3><p class="text-gray-700 whitespace-pre-wrap">${state.culturalTips}</p></div>` : ''}
+                                ${state.foodieGuide ? `<div class="mt-8 bg-gray-50 p-6 rounded-lg animate-fade-in"><h3 class="text-2xl font-semibold text-gray-800 mb-4">Your Culinary Adventure Guide</h3><p class="text-gray-700 whitespace-pre-wrap">${state.foodieGuide}</p></div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>`;
+        }
+
+        // --- Main App Router & Renderer ---
+        function renderApp() {
+            let contentHtml = '';
+            if (state.loading) {
+                contentHtml = `<div class="text-center py-20">${LoadingSpinner()}<p class="text-lg text-gray-600 mt-4">Crafting your perfect Indian adventure...</p><p class="text-sm text-gray-500">This may take up to 30 seconds.</p></div>`;
+            } else if (state.error && state.currentPage !== 'itinerary' && state.currentPage !== 'stateDetail') { // Show full-page error only when not on pages with sub-features
+                contentHtml = `<div class="container mx-auto max-w-2xl text-center py-20 px-4"><div class="bg-red-50 border border-red-200 p-6 rounded-lg flex flex-col items-center">${AlertTriangleIcon()}<p class="text-lg font-semibold text-red-700">Oops! Something went wrong.</p><p class="text-red-600 mt-2">${state.error}</p><button data-action="try-again" class="mt-6 bg-indigo-600 text-white font-bold py-2 px-6 rounded-md hover:bg-indigo-700">Try Again</button></div></div>`;
+            } else {
+                switch (state.currentPage) {
+                    case 'stateDetail': contentHtml = renderStateDetailPage(); break;
+                    case 'planner': contentHtml = renderPlannerPage(); break;
+                    case 'itinerary': contentHtml = renderItineraryPage(); break;
+                    case 'home': default: contentHtml = renderHomePage();
+                }
+            }
+            appRoot.innerHTML = contentHtml;
+            if (state.currentPage === 'planner' && !state.loading && !state.error) {
+                document.getElementById('planner-form').addEventListener('submit', (e) => {
+                    e.preventDefault();
+                    const formData = new FormData(e.target);
+                    const preferences = Object.fromEntries(formData.entries());
+                    handleGenerateItinerary(preferences);
+                });
+            }
+        }
+        
+        // --- Event Delegation ---
+        document.body.addEventListener('click', (e) => {
+            const target = e.target.closest('[data-action]');
+            if (!target) return;
+
+            const action = target.dataset.action;
+            
+            switch(action) {
+                case 'navigate':
+                    setState({ currentPage: target.dataset.page });
+                    window.scrollTo(0,0);
+                    break;
+                case 'select-state':
+                    setState({ currentPage: 'stateDetail', selectedStateId: target.dataset.id, conciergeAnswer: '' }); // Reset concierge on new selection
+                    window.scrollTo(0,0);
+                    break;
+                case 'try-again':
+                    setState({ error: null, currentPage: 'planner' });
+                    break;
+                case 'generate-packing-list': handleGeneratePackingList(); break;
+                case 'generate-cultural-tips': handleGenerateCulturalTips(); break;
+                case 'generate-foodie-guide': handleGenerateFoodieGuide(); break;
+                case 'ask-concierge':
+                    const question = document.getElementById('concierge-question').value;
+                    const stateName = target.dataset.stateName;
+                    if(question.trim()) handleAskConcierge(question, stateName);
+                    break;
+                case 'listen-to-day':
+                    const dayIndex = parseInt(target.dataset.dayIndex, 10);
+                    handleListenToDay(dayIndex);
+                    break;
+            }
+        });
+
+        // --- Initial Render ---
+        renderApp();
+
+    </script>
+</body>
+</html>
+
